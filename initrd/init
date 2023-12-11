@@ -74,7 +74,7 @@ EOF
 	echo '<?xml version="1.0" encoding="utf-8"?>' > /tmp/fakeboot.xml
 	echo '<manifest version="1.0" type="device">' >> /tmp/fakeboot.xml
 	echo '</manifest>' >> /tmp/fakeboot.xml
-	mount --bind /tmp/fakeboot.xml system/vendor/etc/vintf/manifest/android.hardware.boot@1.2.xml
+	mount --bind /tmp/fakeboot.xml system/vendor/etc/vintf/manifest/android.hardware.boot@1.1.xml
 	fi
 }
 
