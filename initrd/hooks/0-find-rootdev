@@ -1,0 +1,53 @@
+#
+# By Chih-Wei Huang <cwhuang@linux.org.tw>
+# and Thorsten Glaser <tg@mirbsd.org>
+#
+# Modified by BlissLabs & Contributors
+#
+# License: GNU Public License
+# We explicitely grant the right to use the scripts
+# with Android-x86 project.
+#
+
+check_sysroot() {
+
+  echo "Scanning $device..."
+  echo ""
+
+  if ! try_mount ro $dev /mnt; then
+    mountpoint -q /mnt && umount /mnt
+    return 1
+  fi
+
+  source /hooks/1-find-system
+  find_system || return 1
+
+  export ROOT=$dev
+  echo "Found at $dev"
+  echo ""
+
+}
+
+find_sysroot() {
+
+  echo "Detecting Android-x86..."
+  echo ""
+  echo "If it took too long to detect, reboot and check your installation folder"
+  echo ""
+
+  local iter=0
+  while [ $iter -lt $1 ]; do
+    for device in /dev/block/*; do
+      check_root "$device" && return 0
+    done
+    sleep 5
+    iter=$((iter + 1))
+    echo -n .
+  done
+
+  echo "Detecting failed after $iter iterations!"
+  echo ""
+
+  return 1
+
+}

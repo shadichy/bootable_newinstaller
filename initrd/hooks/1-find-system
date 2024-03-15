@@ -1,0 +1,33 @@
+#
+# By Chih-Wei Huang <cwhuang@linux.org.tw>
+# and Thorsten Glaser <tg@mirbsd.org>
+#
+# Modified by BlissLabs & Contributors
+#
+# License: GNU Public License
+# We explicitely grant the right to use the scripts
+# with Android-x86 project.
+#
+
+find_system() {
+	if [ -e /mnt/$SRC/system.?fs ]; then
+		mkdir -p /rofs
+		mount -o loop,noatime /mnt/$SRC/system.?fs /rofs
+		if [ ! -e /rofs/system.img ]; then
+			umount /rofs
+			return 1
+		fi
+		SYSTEM=/rofs/system.img
+	elif [ -e /mnt/$SRC/system$SLOT.img ]; then
+		remount_rw
+		SYSTEM=/mnt/$SRC/system$SLOT.img
+	elif [ -s /mnt/$SRC/system/system/build.prop ]; then
+		remount_rw
+		SYSTEM=/mnt/$SRC/system
+	elif [ -z "$SRC" -a -s /mnt/$SRC/system/build.prop ]; then
+		SYSTEM=/mnt/$SRC
+	else
+		return 1
+	fi
+	export SYSTEM
+}

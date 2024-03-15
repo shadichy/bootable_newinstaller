@@ -179,6 +179,16 @@ error()
 	return 1
 }
 
+# check if $1 is UUID= or LABEL=
+# getDeviceFile already exists but it's much more complicated than this
+find_device()
+{
+	case "$1" in
+	UUID=* | LABEL=*) busybox findfs "$1" ;;
+	*) echo "$1" ;;
+	esac
+}
+
 try_mount()
 {
 	RW=$1; shift
@@ -202,59 +212,6 @@ try_mount()
 			return 1
 			;;
 	esac
-}
-
-check_root()
-{
-	if [ "`dirname $1`" = "/dev" ]; then
-		[ -e $1 ] || return 1
-		blk=`basename $1`
-		[ ! -e /dev/block/$blk ] && ln $1 /dev/block
-		dev=/dev/block/$blk
-	else
-		dev=$1
-	fi
-	try_mount ro $dev /mnt || return 1
-
-	# If $INSTALL is being set, assuming that we are in a removable device or
-	# in a iso or any type of device that copied all the content of an iso in
-	if [ -n "$INSTALL" ]; then
-		if [ ! -d "/mnt/isolinux" ] || [ ! -f "/mnt/install.img" ]; then
-			return 1
-		fi
-	fi
-
-	if [ -n "$iso" -a -e /mnt/$iso ]; then
-		mount --move /mnt /iso
-		mkdir /mnt/iso
-		mount -o loop /iso/$iso /mnt/iso
-	fi
-	if [ -e /mnt/$SRC/system.sfs ]; then
-		mount -o loop,noatime /mnt/$SRC/system.sfs android
-		if [ -e android/system.img ]; then
-			mount --move android /sfs
-			mount -o loop,noatime /sfs/system.img android
-		fi
-	elif [ -e /mnt/$SRC/system.efs ]; then
-		mount -o loop,noatime /mnt/$SRC/system.efs android
-		if [ -e android/system.img ]; then
-			mount --move android /sfs
-			mount -o loop,noatime /sfs/system.img android
-		fi
-	elif [ -e /mnt/$SRC/system$SLOT.img ]; then
-		remount_rw
-		mount -o loop,noatime /mnt/$SRC/system$SLOT.img android
-	elif [ -s /mnt/$SRC/system/system/build.prop ]; then
-		remount_rw
-		mount --bind /mnt/$SRC/system android
-	elif [ -z "$SRC" -a -s /mnt/system/build.prop ]; then
-		mount --bind /mnt android
-	else
-		return 1
-	fi
-	echo " Found at $1"
-	hash -r
-	text_art
 }
 
 remount_rw()
@@ -337,18 +294,61 @@ for c in `cat /proc/cmdline`; do
 done
 
 cd /
-while :; do
-	for device in ${ROOT:-/dev/[hmnsvx][dmrv][0-9a-z]*}; do
-		check_root $device && break 2
-
-		# Also umount /android and /sfs if already mounted
-		mountpoint -q /android && umount /android
-		mountpoint -q /sfs && umount /sfs
-		mountpoint -q /mnt && umount /mnt
-	done
-	sleep 1
-	echo -n .
+for device in /dev/[hmnsvx][dmrv][0-9a-z]*; do
+	ln $device /dev/block
 done
+
+# if the android is partition table-based
+IS_ALL_BLOCKDEV=1
+for dev in $SYSTEM $DATA $RECOVERY; do
+	case "$dev" in
+	/dev/*) ;;
+	*) IS_ALL_BLOCKDEV= && break ;;
+	esac
+done
+
+if [ -z "$IS_ALL_BLOCKDEV" ]; then
+
+	ROOT=$(find_device "$ROOT")
+	if [ -z "$ROOT" ]; then
+		source /hooks/0-find-rootdev
+		find_rootdev 10 || debug_shell debug-notfound # maximum 10 iterations
+	else
+		try_mount ro $dev /mnt || debug_shell debug-mountrootfail
+	fi
+
+	if [ -n "$INSTALL" ]; then
+		if [ ! -d "/mnt/isolinux" ] || [ ! -f "/mnt/install.img" ]; then
+			debug_shell debug-missinginstall
+		fi
+	fi
+
+	if [ -n "$iso" -a -e /mnt/$iso ]; then
+		mount --move /mnt /iso
+		mkdir /mnt/iso
+		mount -o loop /iso/$iso /mnt/iso
+	fi
+
+	if [ -z "$SYSTEM" ]; then
+		source /hooks/1-find-system
+		find_system || debug_shell debug-mountsystemfail
+	fi
+
+else
+
+	SYSTEM=$(find_device "$SYSTEM")
+	DATA=$(find_device "$DATA")
+	RECOVERY=$(find_device "$RECOVERY")
+
+fi
+
+if [ -d $SYSTEM ]; then
+	mount --bind $SYSTEM android
+else
+	mount -o loop,noatime $SYSTEM android
+fi
+
+text_art
 
 if ! grep 'sse4_2' /proc/cpuinfo 1>/dev/null; then {
   printf 'WARNING: Your CPU does not support SSE4.2 instructions, the OS will not boot\n';
