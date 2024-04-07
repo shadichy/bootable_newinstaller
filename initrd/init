@@ -312,14 +312,14 @@ if [ -z "$IS_ALL_BLOCKDEV" ]; then
 	ROOT=$(find_device "$ROOT")
 	if [ -z "$ROOT" ]; then
 		source /hooks/0-find-rootdev
-		find_rootdev 10 || debug_shell debug-notfound # maximum 10 iterations
+		find_rootdev 10 || debug_shell debug-late # maximum 10 iterations
 	else
-		try_mount ro $dev /mnt || debug_shell debug-mountrootfail
+		try_mount ro $dev /mnt || debug_shell debug-late
 	fi
 
 	if [ -n "$INSTALL" ]; then
 		if [ ! -d "/mnt/isolinux" ] || [ ! -f "/mnt/install.img" ]; then
-			debug_shell debug-missinginstall
+			debug_shell debug-late
 		fi
 	fi
 
@@ -331,7 +331,7 @@ if [ -z "$IS_ALL_BLOCKDEV" ]; then
 
 	if [ -z "$SYSTEM" ]; then
 		source /hooks/1-find-system
-		find_system || debug_shell debug-mountsystemfail
+		find_system || debug_shell debug-late
 	fi
 
 else
