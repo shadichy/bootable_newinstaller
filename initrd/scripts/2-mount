@@ -197,25 +197,17 @@ mount_grub()
 {
 # Both Leagacy & UEFI now have the same /mnt/boot/grub layout
 	mountpoint -q grub && return
-	if [ ! -z "$SLOT" ]; then
+	if [ -z $EFIDISK ]; then
 		if [ -d /mnt/boot/grub ]; then
 			remount_rw
 			mount --bind /mnt/boot/grub grub
 		fi
-	fi
+	else
+		[ ! -e /dev/block/$EFIDISK ] && ln $1 /dev/block
+		dev=/dev/block/$EFIDISK
 
-# Temporary disable the old grub mounting code, might reuse later
-#	if [ -z $EFIDISK ]; then
-#		if [ -d /mnt/boot/grub ]; then
-#			remount_rw
-#			mount --bind /mnt/boot/grub grub
-#		fi
-#	else
-#		[ ! -e /dev/block/$EFIDISK ] && ln $1 /dev/block
-#		dev=/dev/block/$EFIDISK
-#
-#		remount_rw
-#		mount /dev/block/$EFIDISK /efi
-#		mount --bind /efi/$EFIDIR grub
-#	fi
+		remount_rw
+		mount /dev/block/$EFIDISK /efi
+		mount --bind /efi/$EFIDIR grub
+	fi
 }
