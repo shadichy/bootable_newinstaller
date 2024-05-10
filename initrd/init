@@ -70,6 +70,35 @@ EOF
 	fi
 }
 
+feature_input_ports()
+{
+	# Allow adding to input-ports-associations.xml file using bind mount
+
+	# This will let us add known internal namespace redirects to the system without 
+	# recompiling the OS by passing additional hosts through an input-ports-addon.xml file.
+	# How-To:
+	# $ adb push input-ports-addon.xml /data/misc/input-port-addon.xml
+	# input-ports-addon.xml: 1 file pushed, 0 skipped. 0.0 MB/s (8 bytes in 0.000s)
+	# $ cat /data/misc/input-ports-addon.xml
+	# 142.251.46.238  dorky.billybobs.pudding.slum.com
+	# 143.244.220.150  dorky.bbpslum.com
+	#
+	# Then use the following from kernel cmdline:
+	# BLISS_INPUT_PORTS_ADDON=1
+	
+	# Allow adding to hosts file using bind mount
+	if [ "$BLISS_INPUT_PORTS_ADDON" -gt "0" ]; then
+cat << "EOF"
+# WARNING: INPUT_PORTS_ADDON is overriding the default input-port-associations.xml file.
+# This override will not work if you are using systemless root
+EOF
+		# bind associations file if found
+		if [ -f data/misc/input-port-addon.xml ]; then
+			mount --bind data/misc/input-port-addon.xml system/vendor/etc/input-port-associations.xml
+		fi
+	fi
+}
+
 device_information()
 {
 	DMIPATH=/sys/class/dmi/id
@@ -387,6 +416,7 @@ setup_ab_loops
 setup_tslib
 setup_dpi
 post_detect
+feature_input_ports
 
 if [ 0$DEBUG -gt 1 ]; then
 	echo -e "\nUse Alt-F1/F2/F3 to switch between virtual consoles"
