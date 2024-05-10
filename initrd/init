@@ -99,6 +99,22 @@ EOF
 	fi
 }
 
+addon_idc()
+{
+	# /system/usr/idc/Vendor_0eef_Product_c002_Version_0111.idc
+	if [ "$ADDON_IDC" -gt "0" ]; then
+cat << "EOF"
+# WARNING: ADDON_IDC is overriding idc files for this device.
+# This override will not work if you are using systemless root
+EOF
+		if [ -f data/system/devices/idc/*.idc ]; then
+			for file in data/system/devices/idc/*.idc; do
+				mount --bind "$file" system/usr/idc/"$(basename "$file")"
+			done
+		fi
+	fi
+}
+
 device_information()
 {
 	DMIPATH=/sys/class/dmi/id
@@ -417,6 +433,7 @@ setup_tslib
 setup_dpi
 post_detect
 feature_input_ports
+addon_idc
 
 if [ 0$DEBUG -gt 1 ]; then
 	echo -e "\nUse Alt-F1/F2/F3 to switch between virtual consoles"
