@@ -284,6 +284,72 @@ create_winitem()
 	fi
 }
 
+create_winitem_bios()
+{
+# If Windows is detected, check to see if bootmgr file is exist, or else searching for 
+# System Reserved partition
+#
+# Only check System Reserved for the disk that contain Windows, the Windows installer 
+# ain't gonna create SR in another disk. Also if you dual-boot 2 Windows and having
+# 2 System Reserved, either remove one or seek therapy.
+
+	mkdir /win
+	for i in `blkid | grep -v -E "^/dev/block/|^/dev/loop" | grep 'TYPE="ntfs"' | awk -F: '{print substr($1, 6)}'`; do
+		try_mount ro /dev/$i /win
+		if [ -d "/win/Program Files" ] && [ -d "/win/Windows/System32" ]; then
+			if [ -f "/win/bootmgr" ]; then
+				dialog --backtitle "$BACK_TITLE" --title " Confirm " --yesno \
+					"\nThe installer found a Windows partition in /dev/$i.\n\nDo you want to create a boot item for Windows?" 9 59
+				[ $? -ne 0 ] && continue
+				export windows_part=$i
+			else
+				mkdir /sys_ser
+				winpart=$(basename `dirname /sys/block/*/$i`)
+				for srv in `blkid /dev/"$winpart"* | grep -v -E "^/dev/block/|^/dev/loop" | grep 'TYPE="ntfs"' | awk -F: '{print substr($1, 6)}'`; do
+					try_mount ro /dev/$srv /sys_ser
+					if [ "$(blkid /dev/$srv | grep 'TYPE="ntfs"' | grep 'LABEL="System Reserved"')" ]; then
+						if [ -f "/sys_ser/bootmgr" ]; then
+							dialog --backtitle "$BACK_TITLE" --title " Confirm " --yesno \
+								"\nThe installer found a System Reserved partition in /dev/$srv. This partition might contain boot files for Windows\n\nDo you want to create a boot item for it?" 10 62
+							[ $? -ne 0 ] && continue
+							export windows_part=$srv
+						fi
+					fi
+				done
+			fi
+		fi
+		get_part_info $windows_part
+		result_01=$d
+		result_02=$p
+		umount /win
+		if [ -d "/sys_ser" ]; then
+			umount /sys_ser
+		fi
+	done
+
+}
+
+# The name is kinda misleading, just check if a Windows drive exist
+# and then warn about the limitation of UEFI Windows detection on our 
+# grub
+create_winitem_uefi()
+{
+	mkdir /win
+	for i in `blkid | grep -v -E "^/dev/block/|^/dev/loop" | grep 'TYPE="ntfs"' | awk -F: '{print substr($1, 6)}'`; do
+		try_mount ro /dev/$i /win
+		if [ -d "/win/Program Files" ] && [ -d "/win/Windows/System32" ]; then
+			export windows_part=$i
+		fi
+		umount /win
+	done
+	
+	if [ -n "${windows_part}" ]; then
+		dialog --backtitle "$BACK_TITLE" --clear --title " Notice " --msgbox \
+			"\nDetected a Windows installation on your machine. On UEFI, our Grub2 may not be
+able to detect your Windows installation due to some limitation.\n\nIf you want to know more, check BlissOS Documentation for more info." 11 58
+	fi
+}
+
 check_data_img()
 {
 	losetup /dev/loop7 data.img
@@ -480,7 +546,10 @@ install_to()
 		echo -e 'set timeout_style=hidden\nset timeout=1\nset debug_mode="(DEBUG mode)"' > $grubcfg
 		echo -e "set kdir=/$asrc" >> $grubcfg
 		echo -e '\nsource /boot/grub/android.cfg' >> $grubcfg
-		create_winitem
+		create_winitem_bios
+		if [ $windows_part ] && [ -f /hd/boot/grub/android.cfg ]; then
+			sed -i "s|#WINDOWS_ENTRY|add_winboot_entry Windows $result_01 $result_02|" /hd/boot/grub/android.cfg
+		fi
 	fi
 
 	[ -n "$efi" ] && adialog --title " Confirm " --no-label Skip --yesno \
