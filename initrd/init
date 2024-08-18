@@ -68,6 +68,17 @@ EOF
 	echo '</manifest>' >> /tmp/fakeboot.xml
 	mount --bind /tmp/fakeboot.xml system/vendor/etc/vintf/manifest/android.hardware.boot@1.2.xml
 	fi
+
+# 	# Hide BLE feature from the system
+# 	if [ "$BT_BLE_DISABLE" -ge "1" ]; then
+# cat << "EOF"
+# # NOTICE: BLE is set to be disabled
+# EOF
+# 	echo '<?xml version="1.0" encoding="utf-8"?>' > /tmp/noble.xml
+# 	echo '<permissions>' >> /tmp/noble.xml
+# 	echo '</permissions>' >> /tmp/noble.xml
+# 	mount --bind /tmp/noble.xml system/vendor/etc/permissions/android.hardware.bluetooth_le.xml
+# 	fi
 }
 
 feature_input_ports()
@@ -206,6 +217,16 @@ error()
 	return 1
 }
 
+# check if $1 is UUID= or LABEL=
+# getDeviceFile already exists but it's much more complicated than this
+find_device()
+{
+	case "$1" in
+	UUID=* | LABEL=*) busybox findfs "$1" ;;
+	*) echo "$1" ;;
+	esac
+}
+
 try_mount()
 {
 	RW=$1; shift
@@ -216,7 +237,11 @@ try_mount()
 	fi
 	case $(blkid $1) in
 		*TYPE=*ntfs*)
-			mount.ntfs-3g -o rw,force $@
+			if [ "$USE_NTFS3" -ge 1 ] || [ "$BOOT_USE_NTFS3" -ge 1 ]; then
+				mount -t ntfs3 -o rw,noatime,windows_names $@
+			else
+				mount.ntfs-3g -o rw,force $@
+			fi
 			;;
 		*TYPE=*)
 			mount -o $RW,noatime $@
@@ -225,59 +250,6 @@ try_mount()
 			return 1
 			;;
 	esac
-}
-
-check_root()
-{
-	if [ "`dirname $1`" = "/dev" ]; then
-		[ -e $1 ] || return 1
-		blk=`basename $1`
-		[ ! -e /dev/block/$blk ] && ln $1 /dev/block
-		dev=/dev/block/$blk
-	else
-		dev=$1
-	fi
-	try_mount ro $dev /mnt || return 1
-
-	# If $INSTALL is being set, assuming that we are in a removable device or
-	# in a iso or any type of device that copied all the content of an iso in
-	if [ -n "$INSTALL" ]; then
-		if [ ! -d "/mnt/isolinux" ] || [ ! -f "/mnt/install.img" ]; then
-			return 1
-		fi
-	fi
-
-	if [ -n "$iso" -a -e /mnt/$iso ]; then
-		mount --move /mnt /iso
-		mkdir /mnt/iso
-		mount -o loop /iso/$iso /mnt/iso
-	fi
-	if [ -e /mnt/$SRC/system.sfs ]; then
-		mount -o loop,noatime /mnt/$SRC/system.sfs android
-		if [ -e android/system.img ]; then
-			mount --move android /sfs
-			mount -o loop,noatime /sfs/system.img android
-		fi
-	elif [ -e /mnt/$SRC/system.efs ]; then
-		mount -o loop,noatime /mnt/$SRC/system.efs android
-		if [ -e android/system.img ]; then
-			mount --move android /sfs
-			mount -o loop,noatime /sfs/system.img android
-		fi
-	elif [ -e /mnt/$SRC/system$SLOT.img ]; then
-		remount_rw
-		mount -o loop,noatime /mnt/$SRC/system$SLOT.img android
-	elif [ -s /mnt/$SRC/system/system/build.prop ]; then
-		remount_rw
-		mount --bind /mnt/$SRC/system android
-	elif [ -z "$SRC" -a -s /mnt/system/build.prop ]; then
-		mount --bind /mnt android
-	else
-		return 1
-	fi
-	echo " Found at $1"
-	hash -r
-	text_art
 }
 
 remount_rw()
@@ -317,6 +289,10 @@ setup_loop()
 
 setup_ab_loops()
 {
+	# if [ -n "$RCVRY" ]; then
+	# 	mkdir -p /dev/block/by-name
+	# fi
+
 	if [ ! -z "$SLOT" ]; then
 		if [ "$SLOT" = "_a" ]; then
 			ln -s $(setup_loop /mnt/$SRC/system_b.img) /dev/block/by-name/system_b
@@ -329,8 +305,30 @@ setup_ab_loops()
 		ln -s $(setup_loop /mnt/$SRC/kernel_a) /dev/block/by-name/kernel_a
 		ln -s $(setup_loop /mnt/$SRC/kernel_b) /dev/block/by-name/kernel_b
 		ln -s $(setup_loop /mnt/$SRC/misc.img) /dev/block/by-name/misc
+	# 	ln -s $(setup_loop /mnt/$SRC/recovery.img) /dev/block/by-name/recovery
+	# else
+	# 	if [ -e "/sfs/system.img" ]; then
+	# 		ln -s $(setup_loop /sfs/system.img) /dev/block/by-name/system
+	# 	elif [ -e "/mnt/$SRC/system.img" ]; then
+	# 		ln -s $(setup_loop /mnt/$SRC/system.img) /dev/block/by-name/system
+	# 	else
+	# 		echo "No loop mounting for system"
+	# 	fi
+	# 	ln -s $(setup_loop /mnt/$SRC/initrd.img) /dev/block/by-name/initrd
+	# 	ln -s $(setup_loop /mnt/$SRC/kernel) /dev/block/by-name/kernel
+	# 	ln -s $(setup_loop /mnt/$SRC/misc.img) /dev/block/by-name/misc
+	# 	ln -s $(setup_loop /mnt/$SRC/recovery.img) /dev/block/by-name/recovery
 	fi
 }
+
+# setup_data_loops()
+# {
+# 	if [ -n "$RCVRY" ]; then
+# 		if [ -f /mnt/$SRC/data.img ]; then
+# 			ln -s $(setup_loop /mnt/$SRC/data.img) /dev/block/by-name/userdata
+# 		fi
+# 	fi
+# }
 
 echo "Detecting Android-x86..."
 echo ""
@@ -360,29 +358,75 @@ for c in `cat /proc/cmdline`; do
 done
 
 cd /
-while :; do
-	for device in ${ROOT:-/dev/[hmnsvx][dmrv][0-9a-z]*}; do
-		check_root $device && break 2
-
-		# Also umount /android and /sfs if already mounted
-		mountpoint -q /android && umount /android
-		mountpoint -q /sfs && umount /sfs
-		mountpoint -q /mnt && umount /mnt
-	done
-	sleep 1
-	echo -n .
+for device in /dev/[hmnsvx][dmrv][0-9a-z]*; do
+	ln $device /dev/block
 done
+
+# if the android is partition table-based
+IS_ALL_BLOCKDEV=1
+for dev in $SYSTEM $DATA $RECOVERY; do
+	case "$dev" in
+	/dev/*) ;;
+	*) IS_ALL_BLOCKDEV= && break ;;
+	esac
+done
+
+if [ -z "$IS_ALL_BLOCKDEV" ]; then
+
+	ROOT=$(find_device "$ROOT")
+	if [ -z "$ROOT" ]; then
+		source /hooks/0-find-rootdev
+		find_rootdev 10 || debug_shell debug-late # maximum 10 iterations
+	else
+		try_mount ro $dev /mnt || debug_shell debug-late
+	fi
+
+	if [ -n "$INSTALL" ]; then
+		if [ ! -d "/mnt/isolinux" ] || [ ! -f "/mnt/install.img" ]; then
+			debug_shell debug-late
+		fi
+	fi
+
+	if [ -n "$iso" -a -e /mnt/$iso ]; then
+		mount --move /mnt /iso
+		mkdir /mnt/iso
+		mount -o loop /iso/$iso /mnt/iso
+	fi
+
+	if [ -z "$SYSTEM" ]; then
+		source /hooks/1-find-system
+		find_system || debug_shell debug-late
+	fi
+
+else
+
+	SYSTEM=$(find_device "$SYSTEM")
+	DATA=$(find_device "$DATA")
+	RECOVERY=$(find_device "$RECOVERY")
+
+fi
+
+if [ -d $SYSTEM ]; then
+	mount --bind $SYSTEM /android
+else
+	mount -o loop,noatime $SYSTEM /android
+fi
+
+hash -r
+text_art
+
 
 if ! grep 'sse4_2' /proc/cpuinfo 1>/dev/null; then {
   printf 'WARNING: Your CPU does not support SSE4.2 instructions, the OS will not boot\n';
 } fi
+
 cd /android
 
 ln -s mnt/$SRC /src
-ln -s android/system /
-ln -s ../system/lib/firmware ../system/lib/modules /lib
-mkdir -p /lib/modules
-ln -s ../system/lib/modules /lib/modules/`uname -r`
+ln -s /android/system/vendor/firmware /android/system/lib/modules /lib
+if [ -z "$RCVRY" ]; then
+	ln -s /android/system /
+fi
 
 if [ -d system/apex/com.android.runtime.debug ]; then
 	ln -s ../android/system/apex/com.android.runtime.debug /apex/com.android.runtime
@@ -392,8 +436,34 @@ elif [ -d system/apex/com.android.runtime ]; then
 	ln -s ../android/system/apex/com.android.runtime /apex/com.android.runtime
 fi
 
+if [ -z "$RCVRY" -o -z "$INSTALL" ]; then
 bliss_feature
 device_information
+fi
+
+if [ -n "$RCVRY" ]; then
+	# Assuming if ramdisk-recovery.img exist, this is booting Live from USB
+	if [ -e /src/ramdisk-recovery.img ]; then
+		echo "WARNING: Do not boot Recovery in the Live environment"
+		echo "System will now reboot"
+		sleep 10
+		return 1
+	elif [ -e /src/recovery.img ]; then
+		mkdir /recovery
+		mount -t tmpfs tmpfs /recovery
+		zcat /src/recovery.img | ( cd /recovery; cpio -iud > /dev/null )
+	else
+		echo "WARNING: No recovery.img found"
+		echo "System will now reboot"
+		sleep 10
+		return 1
+	fi
+
+	rm -rf /recovery/lib
+	mkdir -p /recovery/lib/modules
+	mkdir -p /recovery/lib/firmware
+	cd /android
+fi
 
 if [ -n "$INSTALL" ]; then
 	zcat /src/install.img | ( cd /; cpio -iud > /dev/null )
@@ -408,8 +478,20 @@ done
 if [ -n "$INSTALL" -o -n "$DEBUG" ]; then
 	echo "Detecting hardware..."
 	busybox modprobe -a atkbd hid-apple
+	# if [ "$AUTO_LOAD" = "alpine" ]; then
+	# 	auto_detect_alpine &
+	# else
 	auto_detect &
 	wait
+	# fi
+	# sleep 2
+fi
+
+if [ -n "$RCVRY" -o -n "$RCVRY_PROBE" ]; then
+	echo "Detecting hardware for recovery..."
+	busybox modprobe -a hid-apple
+	auto_detect_recovery &
+	sleep 2
 fi
 
 if [ 0$DEBUG -gt 0 ]; then
@@ -425,10 +507,26 @@ fi
 [ -n "$INSTALL" ] && do_install
 
 load_modules
+# if [ -n "$RCVRY" ]; then
+# 	cd /recovery
+# 	mount_data
+# 	mount_sdcard
+# 	mount_grub
+
+# 	if [ -d /recovery/data/cache ]; then
+# 		ln -s /data/cache /recovery/cache
+# 	fi
+# 	setup_ab_loops
+# 	setup_data_loops
+
+# 	mount --bind /android/system/lib/modules /recovery/lib/modules
+# 	mount --bind /android/system/vendor/firmware /recovery/lib/firmware
+# else
 mount_data
 mount_sdcard
 mount_grub
 setup_ab_loops
+# fi
 setup_tslib
 setup_dpi
 post_detect
@@ -453,7 +551,11 @@ echo /system/bin/modprobe > /proc/sys/kernel/modprobe
 
 export ANDROID_ROOT=/system
 
+# if [ -n "$RCVRY" ]; then
+# 	exec ${SWITCH:-switch_root} /recovery /init
+# else
 exec ${SWITCH:-switch_root} /android /init
+# fi
 
 # avoid kernel panic
 while :; do
