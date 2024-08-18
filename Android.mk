@@ -26,6 +26,18 @@ LOCAL_MODULE_CLASS := EXECUTABLES
 LOCAL_POST_INSTALL_CMD := $(hide) sed -i "s|CMDLINE|$(BOARD_KERNEL_CMDLINE)|" $(HOST_OUT_EXECUTABLES)/$(LOCAL_MODULE)
 include $(BUILD_PREBUILT)
 
+include $(CLEAR_VARS)
+
+LOCAL_MODULE := iso_from_target_files
+LOCAL_SRC_FILES := bin/iso_from_target_files
+LOCAL_MODULE_CLASS := EXECUTABLES
+LOCAL_MODULE_PATH := $(HOST_OUT)/bin
+
+include $(BUILD_PREBUILT)
+
+.PHONY: iso_scripts
+iso_scripts: iso_from_target_files
+
 VER ?= $$(date "+%Y-%m-%d")
 
 # use squashfs or erofs for iso, unless explictly disabled
@@ -76,38 +88,9 @@ initrdimage: $(INITRD_RAMDISK)
 INSTALLED_RADIOIMAGE_TARGET += $(INITRD_RAMDISK)
 
 INSTALL_RAMDISK := $(PRODUCT_OUT)/install.img
-INSTALLER_BIN := $(TARGET_INSTALLER_OUT)/sbin/efibootmgr
-
-ifeq ($(TARGET_ARCH),x86_64)
-# ifneq ($(filter x86_64,$(TARGET_ARCH)),)
-
-ifneq ("$(wildcard rusgik/target/x86_64-unknown-linux-musl/release/*)","")
-$(INSTALL_RAMDISK): $(wildcard $(LOCAL_PATH)/install/*/* $(LOCAL_PATH)/install/*/*/*/*) $(INSTALLER_BIN) | $(MKBOOTFS)
+$(INSTALL_RAMDISK): $(wildcard $(LOCAL_PATH)/install/*/* $(LOCAL_PATH)/install/*/*/*/*) | $(MKBOOTFS)
 	$(if $(TARGET_INSTALL_SCRIPTS),mkdir -p $(TARGET_INSTALLER_OUT)/scripts; $(ACP) -p $(TARGET_INSTALL_SCRIPTS) $(TARGET_INSTALLER_OUT)/scripts)
 	$(MKBOOTFS) $(dir $(dir $(<D))) $(TARGET_INSTALLER_OUT) | gzip -9 > $@
-	mv $(PRODUCT_OUT)/root/init $(PRODUCT_OUT)/root/init.real && cp rusgik/target/x86_64-unknown-linux-musl/release/rusty-magisk $(PRODUCT_OUT)/root/init && chmod 777 $(PRODUCT_OUT)/root/init
-else
-$(INSTALL_RAMDISK): $(wildcard $(LOCAL_PATH)/install/*/* $(LOCAL_PATH)/install/*/*/*/*) $(INSTALLER_BIN) | $(MKBOOTFS)
-	$(if $(TARGET_INSTALL_SCRIPTS),mkdir -p $(TARGET_INSTALLER_OUT)/scripts; $(ACP) -p $(TARGET_INSTALL_SCRIPTS) $(TARGET_INSTALLER_OUT)/scripts)
-	$(MKBOOTFS) $(dir $(dir $(<D))) $(TARGET_INSTALLER_OUT) | gzip -9 > $@
-endif
-
-#~ endif
-else ifeq ($(TARGET_ARCH),x86)
-# else ifneq ($(filter x86,$(TARGET_ARCH)),)
-
-ifneq ("$(wildcard rusgik/target/i686-unknown-linux-musl/release/*)","")
-$(INSTALL_RAMDISK): $(wildcard $(LOCAL_PATH)/install/*/* $(LOCAL_PATH)/install/*/*/*/*) $(INSTALLER_BIN) | $(MKBOOTFS)
-	$(if $(TARGET_INSTALL_SCRIPTS),mkdir -p $(TARGET_INSTALLER_OUT)/scripts; $(ACP) -p $(TARGET_INSTALL_SCRIPTS) $(TARGET_INSTALLER_OUT)/scripts)
-	$(MKBOOTFS) $(dir $(dir $(<D))) $(TARGET_INSTALLER_OUT) | gzip -9 > $@
-	mv $(PRODUCT_OUT)/root/init $(PRODUCT_OUT)/root/init.real && cp rusgik/target/i686-unknown-linux-musl/release/rusty-magisk $(PRODUCT_OUT)/root/init && chmod 777 $(PRODUCT_OUT)/root/init
-else
-$(INSTALL_RAMDISK): $(wildcard $(LOCAL_PATH)/install/*/* $(LOCAL_PATH)/install/*/*/*/*) $(INSTALLER_BIN) | $(MKBOOTFS)
-	$(if $(TARGET_INSTALL_SCRIPTS),mkdir -p $(TARGET_INSTALLER_OUT)/scripts; $(ACP) -p $(TARGET_INSTALL_SCRIPTS) $(TARGET_INSTALLER_OUT)/scripts)
-	$(MKBOOTFS) $(dir $(dir $(<D))) $(TARGET_INSTALLER_OUT) | gzip -9 > $@
-endif
-
-endif
 
 .PHONY: installimage
 installimage: $(INSTALL_RAMDISK)
@@ -180,11 +163,11 @@ endif
 
 BUILD_NAME_VARIANT := $(ROM_VENDOR_VERSION)
 
-ISO_IMAGE := $(PRODUCT_OUT)/$(BLISS_VERSION).iso
+ISO_IMAGE := $(PRODUCT_OUT)/$(BLISS_BUILD_ZIP).iso
 $(ISO_IMAGE): $(boot_dir) $(BUILT_IMG)
 	# Generate Changelog
 	bash bootable/newinstaller/tools/changelog
-	$(hide) mv Changelog.txt $(PRODUCT_OUT)/Changelog-$(BLISS_VERSION).txt
+	$(hide) mv Changelog.txt $(PRODUCT_OUT)/Changelog-$(BLISS_BUILD_ZIP).txt
 	@echo ----- Making iso image ------
 	$(hide) sed -i "s|\(Installation CD\)\(.*\)|\1 $(VER)|; s|CMDLINE|$(BOARD_KERNEL_CMDLINE)|" $</isolinux/isolinux.cfg
 	$(hide) sed -i "s|VER|$(VER)|; s|CMDLINE|$(BOARD_KERNEL_CMDLINE)|" $</efi/boot/android.cfg
@@ -195,6 +178,7 @@ $(ISO_IMAGE): $(boot_dir) $(BUILT_IMG)
 		-no-emul-boot -boot-load-size 4 -boot-info-table -eltorito-alt-boot -e boot/grub/efi.img -no-emul-boot \
 		-input-charset utf-8 -V "$(if $(RELEASE_OS_TITLE),$(RELEASE_OS_TITLE),Android-x86) ($(TARGET_ARCH))" -o $@ $^
 	$(hide) PATH="/sbin:/usr/sbin:/bin:/usr/bin" isohybrid --uefi $@
+	$(hide) $(SHA256) $(ISO_IMAGE) | sed "s|$(PRODUCT_OUT)/||" > $(ISO_IMAGE).sha256
 	@echo -e ${CL_CYN}""${CL_CYN}
 	@echo -e ${CL_CYN}"      ___           ___                   ___           ___      "${CL_CYN}
 	@echo -e ${CL_CYN}"     /\  \         /\__\      ___        /\  \         /\  \     "${CL_CYN}
@@ -209,12 +193,13 @@ $(ISO_IMAGE): $(boot_dir) $(BUILT_IMG)
 	@echo -e ${CL_CYN}"     ~~            \/__/                 \/__/         \/__/     "${CL_CYN}
 	@echo -e ${CL_CYN}""${CL_CYN}
 	@echo -e ${CL_CYN}"===========-Bliss Package Complete-==========="${CL_RST}
-	@echo -e ""
+	@echo -e ${CL_CYN}"Zip: "${CL_MAG} $(ISO_IMAGE)${CL_RST}
+	@echo -e ${CL_CYN}"SHA256: "${CL_MAG}" `cat $(ISO_IMAGE).sha256 | cut -d ' ' -f 1`"${CL_RST}
+	@echo -e ${CL_CYN}"Size:"${CL_MAG}" `ls -lah $(ISO_IMAGE) | cut -d ' ' -f 5`"${CL_RST}
 	@echo -e ${CL_CYN}"==============================================="${CL_RST}
 	@echo -e ${CL_CYN}"Have A Truly Blissful Experience"${CL_RST}
 	@echo -e ${CL_CYN}"==============================================="${CL_RST}
 	@echo -e ""
-	sha1sum $(PRODUCT_OUT)/*.iso > $(PRODUCT_OUT)/$(BLISS_VERSION).sha
 
 rpm: $(wildcard $(LOCAL_PATH)/rpm/*) $(BUILT_IMG)
 	@echo ----- Making an rpm ------
