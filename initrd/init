@@ -173,6 +173,15 @@ fi
 # First, chmod /sbin because somehow the build process messed up the permission
 chmod 755 /sbin/*
 
+# check if specified device has pattern like UUID= or LABEL=
+find_device()
+{
+	case "$1" in
+	UUID=* | LABEL=*) busybox findfs "$1" ;;
+	*) echo "$1" ;;
+	esac
+}
+
 error()
 {
 	echo $*
@@ -327,6 +336,7 @@ for c in `cat /proc/cmdline`; do
 			;;
 		androidboot.efidisk=*)
 			eval EFIDISK=`echo $c | cut -f 2 -d "="`
+			EFIDISK=`find_device $EFIDISK`
 			;;
 		androidboot.efidir=*)
 			eval EFIDIR=`echo $c | cut -f 2 -d "="`
@@ -335,6 +345,8 @@ for c in `cat /proc/cmdline`; do
 			;;
 	esac
 done
+
+ROOT=`find_device $ROOT`
 
 cd /
 while :; do
