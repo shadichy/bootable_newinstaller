@@ -382,7 +382,7 @@ else
 fi
 
 if [ -n "$INSTALL" ]; then
-	if [ ! -d "/mnt/isolinux" ] || [ ! -f "/mnt/install.img" ]; then
+	if [ ! -f /mnt/installer.?fs ]; then
 		debug_shell fatal-err
 	fi
 fi
@@ -412,9 +412,9 @@ fi
 bliss_feature
 device_information
 
-if [ -n "$INSTALL" ]; then
-	zcat /src/install.img | ( cd /; cpio -iud > /dev/null )
-fi
+# if [ -n "$INSTALL" ]; then
+# 	zcat /src/install.img | ( cd /; cpio -iud > /dev/null )
+# fi
 
 # load scripts
 for s in `ls /scripts/* /src/scripts/*`; do
@@ -443,7 +443,7 @@ fi
 # return 1 if it wants to use auto_detect
 [ "$AUTO" != "1" ] && detect_hardware && FOUND=1
 
-[ -n "$INSTALL" ] && do_install
+[ -n "$INSTALL" ] && setup_install
 
 load_modules
 mount_data
@@ -462,6 +462,8 @@ if [ 0$DEBUG -gt 1 ]; then
 fi
 
 [ -n "$DEBUG" ] && SWITCH=${SWITCH:-chroot}
+
+[ -n "$INSTALL" ] && start_install
 
 # We must disable mdev before switching to Android
 # since it conflicts with Android's init

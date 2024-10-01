@@ -1,15 +1,28 @@
 #
 # By Chih-Wei Huang <cwhuang@linux.org.tw>
-# Last updated 2009/12/10
+#		 Shadichy <shadichy.dev@gmail.com>
+# Last updated 2024/10/01
 #
 # License: GNU Public License
 # We explicitely grant the right to use the scripts
 # with Android-x86 project.
 #
 
-do_install()
-{
-	error -e '\n  Android-x86 installer is not available.\n  Press RETURN to run live version.\n'
-	read
-	cd /android
+setup_install() {
+	mkdir -p /installer
+	mount -o loop /mnt/installer.?fs /installer
+	mount --move /android /installer/android
+	mount --move /mnt /installer/cdrom
+}
+
+start_install() {
+	exec ${SWITCH:-switch_root} /installer /sbin/init
+
+	# avoid kernel panic
+	while :; do
+		echo
+		echo '	Android-x86 console shell. Use only in emergencies.'
+		echo
+		debug_shell fatal-err
+	done
 }
