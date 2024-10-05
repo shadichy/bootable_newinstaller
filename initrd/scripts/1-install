@@ -10,7 +10,7 @@
 
 setup_install() {
 	mkdir -p /installer /tmp/i_workdir /tmp/i_upperdir
-	mount -o loop /mnt/$SRC/installer.?fs /installer
+	mount -o loop /mnt/"$SRC"/installer.?fs /installer
 	mount -t overlay \
 		-o lowerdir=/installer,upperdir=/tmp/i_upperdir,workdir=/tmp/i_workdir \
 		overlay /installer

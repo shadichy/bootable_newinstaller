@@ -1,4 +1,4 @@
-#
+#!/bin/busybox sh
 # By Chih-Wei Huang <cwhuang@linux.org.tw>
 # Last updated 2017/04/23
 #
@@ -7,83 +7,138 @@
 # with Android-x86 project.
 #
 
-mount_data()
-{
-	mountpoint -q data && return
-	if [ -n "$DATA" ]; then
-		blk=`basename $(find_device  "$DATA")`
-		if [ -b "/dev/$blk" ]; then
-			[ ! -e /dev/block/$blk ] && ln /dev/$blk /dev/block
-			mount -o noatime /dev/block/$blk data
-		elif [ "$DATA" = "9p" ]; then
-			modprobe 9pnet_virtio
-			mount -t 9p -o trans=virtio data data -oversion=9p2000.L,posixacl,cache=loose
-		elif [ "$DATA" = "virtiofs" ]; then
-			mount -t virtiofs -o nosuid,nodev,noatime data data
-		else
-			remount_rw
-			mkdir -p /mnt/$SRC/$DATA
-			mount --bind /mnt/$SRC/$DATA data
-		fi
-	elif [ -d /mnt/$SRC/data ]; then
-		remount_rw
-		mount --bind /mnt/$SRC/data data
-	elif [ -f /mnt/$SRC/data.img ]; then
-		remount_rw
-		mount -o loop,noatime /mnt/$SRC/data.img data
-	else
-		device_mount_data || mount -t tmpfs tmpfs data
-	fi
-}
+hanlde_fstab_line() {
+	device=/mnt/$SRC/${1#"#>"}
+	target=$2
 
-mount_sdcard()
-{
-	mountpoint -q sdcard && return
-	if [ -n "$SDCARD" -a -e /mnt/$SRC$SDCARD ]; then
-		if [ ! -e /android$SDCARD ]; then
-			remount_rw
-			sddir=`dirname $SDCARD`
-			mkdir /android$sddir
-			mount --bind /mnt/$SRC$sddir /android$sddir
-		fi
-	elif [ "$SDCARD" = "premount" ]; then
-	# WARNING: premount the sdcard is deprecated since froyo-x86.
-	# It is left only for backward compatibility and may be removed
-	# in the future.
-		if [ -d /mnt/$SRC/sdcard ]; then
-			remount_rw
-			mount --bind /mnt/$SRC/sdcard mnt/sdcard
-		elif [ -d data/sdcard ]; then
-			mount --bind data/sdcard mnt/sdcard
-		else
-			mount -o mode=2777,uid=1000,gid=1015 -t tmpfs tmpfs mnt/sdcard
-		fi
-	fi
-}
-
-mount_grub()
-{
-# Both Leagacy & UEFI now have the same /mnt/boot/grub layout
-	mountpoint -q grub && return
-	if [ ! -z "$SLOT" ]; then
-		if [ -d /mnt/boot/grub ]; then
-			remount_rw
-			mount --bind /mnt/boot/grub grub
-		fi
+	if [ -d "$device" ]; then
+		mount --bind "$device" "/android/$target"
+		return
 	fi
 
-# Temporary disable the old grub mounting code, might reuse later
-#	if [ -z $EFIDISK ]; then
-#		if [ -d /mnt/boot/grub ]; then
-#			remount_rw
-#			mount --bind /mnt/boot/grub grub
-#		fi
-#	else
-#		[ ! -e /dev/block/$EFIDISK ] && ln $1 /dev/block
-#		dev=/dev/block/$EFIDISK
-#
-#		remount_rw
-#		mount /dev/block/$EFIDISK /efi
-#		mount --bind /efi/$EFIDIR grub
-#	fi
+	case "$2" in
+	/)
+		mount "$device" /android
+		if [ -f /android/system.img ]; then
+			mount /android/system.img /android
+		fi
+		;;
+	*)
+		target_loop=$(setup_loop "$device")
+		echo "$target_loop $target auto defaults defaults" >>/tmp/fstab
+
+		if [ "$target" = /data ]; then
+			target=userdata
+		fi
+
+		# shellcheck disable=SC2046,SC2086
+		ln -s $target_loop /dev/block/by-name/$target
+		;;
+	esac
+
 }
+
+process_fstab() {
+	mkdir -p /dev/block/by-name
+	touch /tmp/fstab
+	while read -r line; do
+		# shellcheck disable=SC2086
+		case "$line" in
+		"#>"*) hanlde_fstab_line $line ;;
+		*) ;;
+		esac
+
+		if grep -wq / "$line"; then
+			load_modules
+		fi
+	done <"/mnt/$SRC/fstab.android"
+}
+
+link_fstab() {
+	{
+		cat "/mnt/$SRC/fstab.android"
+		cat /android/fstab.*
+	} >>/tmp/fstab
+	mount --bind /tmp/fstab $(ls | grep fstab.)
+}
+
+# mount_data()
+# {
+# 	mountpoint -q data && return
+# 	if [ -n "$DATA" ]; then
+# 		blk=`basename $(find_device  "$DATA")`
+# 		if [ -b "/dev/$blk" ]; then
+# 			[ ! -e /dev/block/$blk ] && ln /dev/$blk /dev/block
+# 			mount -o noatime /dev/block/$blk data
+# 		elif [ "$DATA" = "9p" ]; then
+# 			modprobe 9pnet_virtio
+# 			mount -t 9p -o trans=virtio data data -oversion=9p2000.L,posixacl,cache=loose
+# 		elif [ "$DATA" = "virtiofs" ]; then
+# 			mount -t virtiofs -o nosuid,nodev,noatime data data
+# 		else
+# 			remount_rw
+# 			mkdir -p /mnt/$SRC/$DATA
+# 			mount --bind /mnt/$SRC/$DATA data
+# 		fi
+# 	elif [ -d /mnt/$SRC/data ]; then
+# 		remount_rw
+# 		mount --bind /mnt/$SRC/data data
+# 	elif [ -f /mnt/$SRC/data.img ]; then
+# 		remount_rw
+# 		mount -o loop,noatime /mnt/$SRC/data.img data
+# 	else
+# 		device_mount_data || mount -t tmpfs tmpfs data
+# 	fi
+# }
+
+# mount_sdcard()
+# {
+# 	mountpoint -q sdcard && return
+# 	if [ -n "$SDCARD" -a -e /mnt/$SRC$SDCARD ]; then
+# 		if [ ! -e /android$SDCARD ]; then
+# 			remount_rw
+# 			sddir=`dirname $SDCARD`
+# 			mkdir /android$sddir
+# 			mount --bind /mnt/$SRC$sddir /android$sddir
+# 		fi
+# 	elif [ "$SDCARD" = "premount" ]; then
+# 	# WARNING: premount the sdcard is deprecated since froyo-x86.
+# 	# It is left only for backward compatibility and may be removed
+# 	# in the future.
+# 		if [ -d /mnt/$SRC/sdcard ]; then
+# 			remount_rw
+# 			mount --bind /mnt/$SRC/sdcard mnt/sdcard
+# 		elif [ -d data/sdcard ]; then
+# 			mount --bind data/sdcard mnt/sdcard
+# 		else
+# 			mount -o mode=2777,uid=1000,gid=1015 -t tmpfs tmpfs mnt/sdcard
+# 		fi
+# 	fi
+# }
+
+# mount_grub()
+# {
+# # Both Leagacy & UEFI now have the same /mnt/boot/grub layout
+# 	mountpoint -q grub && return
+# 	if [ ! -z "$SLOT" ]; then
+# 		if [ -d /mnt/boot/grub ]; then
+# 			remount_rw
+# 			mount --bind /mnt/boot/grub grub
+# 		fi
+# 	fi
+
+# # Temporary disable the old grub mounting code, might reuse later
+# #	if [ -z $EFIDISK ]; then
+# #		if [ -d /mnt/boot/grub ]; then
+# #			remount_rw
+# #			mount --bind /mnt/boot/grub grub
+# #		fi
+# #	else
+# #		[ ! -e /dev/block/$EFIDISK ] && ln $1 /dev/block
+# #		dev=/dev/block/$EFIDISK
+# #
+# #		remount_rw
+# #		mount /dev/block/$EFIDISK /efi
+# #		mount --bind /efi/$EFIDIR grub
+# #	fi
+# }
