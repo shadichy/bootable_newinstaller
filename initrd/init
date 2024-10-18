@@ -143,7 +143,7 @@ if test x"$HAS_CTTY" != x"Yes"; then
 	# remove busybox fdisk & mke2fs
 	rm /bin/fdisk
 	rm /bin/mke2fs
-	# spawn shells on tty 2 and 3 if debug or installer
+	# spawn shells on tty 2 and 3 if debug or install
 	if test -n "$DEBUG" || test -n "$INSTALL"; then
 		# ensure they can open a controlling tty
 		mknod /dev/tty c 5 0
@@ -362,8 +362,7 @@ fi || debug_shell fatal-err
 
 remount_rw
 
-# shellcheck disable=SC2144
-if [ -n "$INSTALL" ] && [ ! -f /mnt/"$SRC"/installer.?fs ]; then
+if [ -n "$INSTALL" ] && [ ! -f "/mnt/$SRC/$INSTALL" ]; then
 	debug_shell fatal-err
 fi
 

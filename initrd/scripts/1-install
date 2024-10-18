@@ -1,4 +1,4 @@
-#
+# shellcheck shell=sh
 # By Chih-Wei Huang <cwhuang@linux.org.tw>
 #		 Shadichy <shadichy.dev@gmail.com>
 # Last updated 2024/10/01
@@ -9,21 +9,22 @@
 #
 
 setup_install() {
-	mkdir -p /installer /tmp/i_workdir /tmp/i_upperdir
-	mount -o loop /mnt/"$SRC"/installer.?fs /installer
+	mkdir -p /install /tmp/i_workdir /tmp/i_upperdir
+	mount -o loop "/mnt/$SRC/$INSTALL" /install
 	mount -t overlay \
-		-o lowerdir=/installer,upperdir=/tmp/i_upperdir,workdir=/tmp/i_workdir \
-		overlay /installer
+		-o lowerdir=/install,upperdir=/tmp/i_upperdir,workdir=/tmp/i_workdir \
+		overlay /install
 
-	mount --move /android /installer/android
-	mount --move /mnt /installer/cdrom
+	mount --move /android /install/android
+	mount --move /mnt /install/cdrom
 
 	rm -f /system
-	ln -s /installer/android/system /
+	ln -s /install/android/system /
 }
 
 start_install() {
-	exec ${SWITCH:-switch_root} /installer /sbin/init
+	# shellcheck disable=SC2093
+	exec ${SWITCH:-switch_root} /install "${init:-/sbin/init}"
 
 	# avoid kernel panic
 	while :; do

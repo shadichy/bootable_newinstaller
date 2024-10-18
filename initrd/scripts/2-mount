@@ -11,8 +11,17 @@ hanlde_fstab_line() {
 	device=/mnt/$SRC/${1#"#>"}
 	target=$2
 
-	if [ -d "$device" ]; then
-		mount --bind "$device" "/android/$target"
+	if [ -e "$device" ]; then
+		[ -d "$device" ] && flags='--bind'
+		# shellcheck disable=SC2086
+		mount "$device" "/android/$target" $flags
+		case "$2" in
+		/)
+			if [ -f /android/system.img ]; then
+				mount /android/system.img /android
+			fi
+			;;
+		esac
 		return
 	fi
 
@@ -24,15 +33,12 @@ hanlde_fstab_line() {
 		fi
 		;;
 	*)
-		target_loop=$(setup_loop "$device")
-		echo "$target_loop $target auto defaults defaults" >>/tmp/fstab
-
 		if [ "$target" = /data ]; then
 			target=userdata
 		fi
 
 		# shellcheck disable=SC2046,SC2086
-		ln -s $target_loop /dev/block/by-name/$target
+		ln -s $(setup_loop "$device") /dev/block/by-name/$target
 		;;
 	esac
 
