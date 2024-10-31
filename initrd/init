@@ -380,6 +380,7 @@ for s in /scripts/* /mnt/"$SRC"/scripts/*; do
 	test -e "$s" && source "$s"
 done
 
+check_fstab
 process_fstab
 
 # shellcheck disable=SC2164

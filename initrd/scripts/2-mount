@@ -1,6 +1,6 @@
 # shellcheck shell=sh
-# By Chih-Wei Huang <cwhuang@linux.org.tw>
-# Last updated 2017/04/23
+# By Shadichy <shadichy.dev@gmail.com>
+# Last updated 2024/10/01
 #
 # License: GNU Public License
 # We explicitely grant the right to use the scripts
@@ -19,6 +19,14 @@ handle_fstab_line() {
 
 	type=$3
 	flags=$4
+
+	if [ "$type" ]; then
+		case "$type" in
+		9p) modprobe 9pnet_virtio ;;
+		*) ;;
+		esac
+	fi
+
 	case "$2" in
 	/)
 		mount "$device" /android ${type:+ -t $type} ${flags:+ -o $flags}
@@ -41,7 +49,7 @@ handle_fstab_line() {
 }
 
 process_fstab() {
-	cp "/mnt/$SRC/fstab.android" /tmp/fstab
+	cp /tmp/fstab.tmp /tmp.fstab
 
 	# shellcheck disable=SC2086
 	while read -r line; do
@@ -54,7 +62,7 @@ process_fstab() {
 		if grep -wq / "$line"; then
 			load_modules
 		fi
-	done <"/mnt/$SRC/fstab.android"
+	done </tmp/fstab.tmp
 }
 
 link_fstab() {
