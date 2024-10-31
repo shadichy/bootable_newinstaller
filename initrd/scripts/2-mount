@@ -1,4 +1,4 @@
-#!/bin/busybox sh
+# shellcheck shell=sh
 # By Chih-Wei Huang <cwhuang@linux.org.tw>
 # Last updated 2017/04/23
 #
@@ -7,53 +7,50 @@
 # with Android-x86 project.
 #
 
-hanlde_fstab_line() {
-	device=/mnt/$SRC/${1#"#>"}
+handle_fstab_line() {
+	eval device="/mnt/$SRC/${1#"#>"}"
 	target=$2
 
-	if [ -e "$device" ]; then
-		[ -d "$device" ] && flags='--bind'
-		# shellcheck disable=SC2086
-		mount "$device" "/android/$target" $flags
-		case "$2" in
-		/)
-			if [ -f /android/system.img ]; then
-				mount /android/system.img /android
-			fi
-			;;
-		esac
+	# shellcheck disable=SC2154,SC2086
+	if [ -d "$device" ]; then
+		mount "$device" "/android/$target" --bind
 		return
 	fi
 
+	type=$3
+	flags=$4
 	case "$2" in
 	/)
-		mount "$device" /android
+		mount "$device" /android ${type:+ -t $type} ${flags:+ -o $flags}
 		if [ -f /android/system.img ]; then
+			# Loop mount system.img
 			mount /android/system.img /android
 		fi
 		;;
 	*)
-		if [ "$target" = /data ]; then
-			target=userdata
-		fi
+		sed -i -r "s|#\?$target|$(setup_loop "$device")|g" /tmp/fstab
+		# if [ "$target" = /data ]; then
+		# 	target=userdata
+		# fi
 
-		# shellcheck disable=SC2046,SC2086
-		ln -s $(setup_loop "$device") /dev/block/by-name/$target
+		# # shellcheck disable=SC2046,SC2086
+		# ln -s $(setup_loop "$device") /dev/block/by-name/$target
 		;;
 	esac
 
 }
 
 process_fstab() {
-	mkdir -p /dev/block/by-name
-	touch /tmp/fstab
+	cp "/mnt/$SRC/fstab.android" /tmp/fstab
+
+	# shellcheck disable=SC2086
 	while read -r line; do
-		# shellcheck disable=SC2086
 		case "$line" in
-		"#>"*) hanlde_fstab_line $line ;;
+		"#>"*) handle_fstab_line $line ;;
 		*) ;;
 		esac
 
+		# Load modules after mounting root
 		if grep -wq / "$line"; then
 			load_modules
 		fi
@@ -61,11 +58,8 @@ process_fstab() {
 }
 
 link_fstab() {
-	{
-		cat "/mnt/$SRC/fstab.android"
-		cat /android/fstab.*
-	} >>/tmp/fstab
-	mount --bind /tmp/fstab $(ls | grep fstab.)
+	cat /android/fstab.* >>/tmp/fstab
+	mount --bind /tmp/fstab /android/fstab.*
 }
 
 # mount_data()
