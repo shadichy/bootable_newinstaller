@@ -11,6 +11,7 @@ check_fstab() {
   if [ -f "/mnt/$SRC/fstab.android" ]; then
     cp "/mnt/$SRC/fstab.android" /tmp/fstab.tmp
   else
+    echo "Warning: No fstab found. Attempting to create one..."
     /bin/build-fstab "/mnt/$SRC" >/tmp/fstab.tmp || debug_shell fatal-err
     cp /tmp/fstab.tmp "/mnt/$SRC/fstab.android" 2>/dev/null || :
   fi
