@@ -9,6 +9,7 @@
 # We explicitely grant the right to use the scripts
 # with Android-x86 project.
 #
+# shellcheck disable=SC3036,SC2068
 
 PATH=/sbin:/bin:/system/bin:/system/xbin:/vendor/bin:/system_ext/bin:/system/vendor/bin:/system/system_ext/bin
 export PATH
@@ -44,7 +45,7 @@ bliss_feature() {
 ## DO NOT PRESS "TAP TO FIX", IT WILL FORMAT THE DRIVE!
 EOF
 
-		mount --bind system/vendor/etc/fstab.internal.x86 $(ls | grep fstab.)
+		mount --bind system/vendor/etc/fstab.internal.x86 /android/fstab.*
 	fi
 
 	# Enabling AOSP features for PC
@@ -94,31 +95,18 @@ device_information() {
 	*) ;;
 	esac
 
-	touch /tmp/device.prop
-	{
-		echo ro.product.bliss.device="$PRODUCT"
-		echo ro.product.bliss.name="$PRODUCT"
-		echo ro.product.bliss.brand="$VENDOR"
-		echo ro.product.bliss.manufacturer="$(cat $DMIPATH/board_vendor)"
-		echo ro.product.bliss.model="$BOARD"
-		echo ro.product.board="$BOARD"
-		echo ro.bliss.serialnumber="$SERIALNO"
-	} >>/tmp/device.prop
+	cat <<EOF >>/tmp/device.prop
+ro.product.bliss.device=$PRODUCT
+ro.product.bliss.name=$PRODUCT
+ro.product.bliss.brand=$VENDOR
+ro.product.bliss.manufacturer=$(cat $DMIPATH/board_vendor)
+ro.product.bliss.model=$BOARD
+ro.product.board=$BOARD
+ro.bliss.serialnumber=$SERIALNO
+EOF
 
 	mount --bind /tmp/device.prop system/vendor/etc/device.prop
 }
-
-# auto installation
-# if [ -n "$AUTO_INSTALL" ]; then
-# 	echo -n "This will replace all operating-systems on this device with a read-only version of this OS. Are you sure you want to continue (y/n)? "
-# 	read answer
-# 	if [ "$answer" != "${answer#[Yy]}" ]; then
-# 		echo "Booting in Live Mode instead"
-# 	else
-# 		echo "Starting Installer"
-# 		INSTALL=1
-# 	fi
-# fi
 
 # configure debugging output
 if [ -n "$DEBUG" ] || [ -n "$INSTALL" ]; then
@@ -179,24 +167,18 @@ find_device() {
 	esac
 }
 
-error() {
-	echo $*
-	return 1
-}
-
 try_mount() {
 	RW=$1
 	shift
 
-	blk=$(basename "$1")
-	[ ! -e /dev/block/$blk ] && ln /dev/$blk /dev/block
+	[ ! -e "$(basename "$1")" ] && ln "$1" /dev/block
 
 	if [ "${ROOT#*:/}" != "$ROOT" ]; then
 		# for NFS roots, use nolock to avoid dependency to portmapper
 		mount -o $RW,noatime,nolock $@
 		return $?
 	fi
-	case $(blkid $1) in
+	case $(blkid "$1") in
 	*TYPE=*ntfs*)
 		if [ "$USE_NTFS3" -ge 1 ] || [ "$BOOT_USE_NTFS3" -ge 1 ]; then
 			mount -t ntfs3 -o rw,noatime,windows_names $@

@@ -43,7 +43,9 @@ fi
 
 echo -e "#>$_s  /"
 
-_d=${DATA:=data.img}
+_d=${DATA:=${2:-data.img}}
+[ "$_d" = "nodata" ] && exit 0
+
 _d_fs=auto
 _d_flags=defaults
 _d_aflags=defaults
