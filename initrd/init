@@ -109,7 +109,7 @@ EOF
 }
 
 # configure debugging output
-if [ -n "$DEBUG" ] || [ -n "$INSTALL" ]; then
+if [ "$DEBUG" ] || [ "$INSTALL" ]; then
 	LOG=/tmp/log
 	set -x
 else
@@ -134,14 +134,14 @@ if test x"$HAS_CTTY" != x"Yes"; then
 	rm /bin/fdisk
 	rm /bin/mke2fs
 	# spawn shells on tty 2 and 3 if debug or install
-	if test -n "$DEBUG" || test -n "$INSTALL"; then
+	if [ "$INSTALL" ] || [ "$DEBUG" ]; then
 		# ensure they can open a controlling tty
 		mknod /dev/tty c 5 0
 		# create device nodes then spawn on them
 		mknod /dev/tty2 c 4 2 && openvt
 		mknod /dev/tty3 c 4 3 && openvt
 	fi
-	if test -z "$DEBUG" || test -n "$INSTALL"; then
+	if [ "$INSTALL" ] || [ "$DEBUG" ]; then
 		echo 0 0 0 0 >/proc/sys/kernel/printk
 	fi
 	# initialise /dev (first time)
@@ -168,7 +168,7 @@ find_device() {
 }
 
 try_mount() {
-	RW=$1
+	local RW=$1
 	shift
 
 	[ ! -e "$(basename "$1")" ] && ln "$1" /dev/block
@@ -195,8 +195,18 @@ try_mount() {
 	esac
 }
 
+search_root() {
+	if [ "$iso" ] && [ -f "/mnt/$iso" ]; then
+		mount -o loop "/mnt/$iso" /mnt
+	fi
+
+	if [ ! -e "/mnt/$SRC/$file_search_root" ]; then
+		return 1
+	fi
+}
+
 check_sysroot() {
-	dev=$1
+	local dev=$1
 	echo "Scanning $dev..."
 	echo ""
 
@@ -205,7 +215,7 @@ check_sysroot() {
 		return 1
 	fi
 
-	if ! find_system; then
+	if ! search_root; then
 		umount /mnt
 		mountpoint -q /iso && umount /iso
 		return 1
@@ -238,35 +248,6 @@ find_sysroot() {
 	echo ""
 
 	return 1
-}
-
-find_system() {
-	if [ -n "$iso" ] && [ -e "/mnt/$iso" ]; then
-		mount --move /mnt /iso
-		mount -o loop "/iso/$iso" /mnt
-	fi
-
-	# if [ -e /mnt/$SRC/system.?fs ]; then
-	# 	mkdir -p /rofs
-	# 	# mount -o loop,noatime /mnt/$SRC/system.?fs /rofs
-	# 	# if [ ! -e /rofs/system.img ]; then
-	# 	# 	umount /rofs
-	# 	# 	return 1
-	# 	# fi
-	# 	# 	mount -o loop,noatime /rofs/system.img android
-	# elif [ -e /mnt/$SRC/system$SLOT.img ]; then
-	# 	remount_rw
-	# 	# mount -o loop,noatime /mnt/$SRC/system$SLOT.img android
-	# elif [ -s /mnt/$SRC/system/system/build.prop ]; then
-	# 	remount_rw
-	# 	# mount --bind /mnt/$SRC/system android
-	# elif [ -z "$SRC" -a -s /mnt/$SRC/system/build.prop ]; then
-	# 	echo do nothing
-	# 	# mount --bind /mnt/$SRC android
-	# else
-	if [ ! -e "/mnt/$SRC/fstab.android" ]; then
-		return 1
-	fi
 }
 
 remount_rw() {
@@ -321,18 +302,27 @@ echo ""
 echo "If it took too long to detect, reboot and check your installation folder"
 echo ""
 
-[ -z "$SRC" ] && [ -n "$BOOT_IMAGE" ] && SRC=$(dirname "$BOOT_IMAGE")
+[ -z "$SRC" ] && [ "$BOOT_IMAGE" ] && SRC=$(dirname "$BOOT_IMAGE")
 
 # shellcheck disable=SC2013
 for c in $(cat /proc/cmdline); do
 	case "$c" in
 	iso-scan/filename=*) iso=${c##*=} ;;
-	androidboot.slot_suffix=*) SLOT=${c##*=} ;;
+	androidboot.slot_suffix=*)
+		SLOT=${c##*=}
+		file_search_root=fstab.android
+		;;
 	androidboot.efidisk=*) EFIDISK=$(find_device "${c##*=}") ;;
 	androidboot.efidir=*) EFIDIR=${c##*=} ;;
 	*) ;;
 	esac
 done
+
+if [ "$INSTALL" ]; then
+	file_search_root=$INSTALL
+elif [ -z "$file_search_root" ]; then
+	file_search_root=${BOOT_IMAGE#/}
+fi
 
 ROOT=$(find_device "$ROOT")
 
@@ -345,7 +335,7 @@ fi || debug_shell fatal-err
 
 remount_rw
 
-if [ -n "$INSTALL" ] && [ ! -f "/mnt/$SRC/$INSTALL" ]; then
+if [ "$INSTALL" ] && [ ! -f "/mnt/$SRC/$INSTALL" ]; then
 	debug_shell fatal-err
 fi
 
@@ -373,13 +363,13 @@ ln -s ../system/lib/firmware ../system/lib/modules /lib
 mkdir -p /lib/modules
 ln -s ../system/lib/modules /lib/modules/"$(uname -r)"
 
-if [ -d system/apex/com.android.runtime.debug ]; then
-	ln -s ../android/system/apex/com.android.runtime.debug /apex/com.android.runtime
-elif [ -d system/apex/com.android.runtime.release ]; then
-	ln -s ../android/system/apex/com.android.runtime.release /apex/com.android.runtime
-elif [ -d system/apex/com.android.runtime ]; then
-	ln -s ../android/system/apex/com.android.runtime /apex/com.android.runtime
-fi
+# if [ -d system/apex/com.android.runtime.debug ]; then
+# 	ln -s ../android/system/apex/com.android.runtime.debug /apex/com.android.runtime
+# elif [ -d system/apex/com.android.runtime.release ]; then
+# 	ln -s ../android/system/apex/com.android.runtime.release /apex/com.android.runtime
+# elif [ -d system/apex/com.android.runtime ]; then
+# 	ln -s ../android/system/apex/com.android.runtime /apex/com.android.runtime
+# fi
 
 bliss_feature
 device_information
@@ -387,7 +377,7 @@ device_information
 link_fstab
 
 # ensure keyboard driver is loaded
-if [ -n "$INSTALL" ] || [ -n "$DEBUG" ]; then
+if [ "$INSTALL" ] || [ "$DEBUG" ]; then
 	echo "Detecting hardware..."
 	busybox modprobe -a hid-apple
 	if [ "$AUTO_LOAD" = "alpine" ]; then
@@ -408,7 +398,7 @@ fi
 # return 1 if it wants to use auto_detect
 [ "$AUTO" != 1 ] && detect_hardware && FOUND=1
 
-[ -n "$INSTALL" ] && setup_install
+[ "$INSTALL" ] && setup_install
 
 # mount_data
 # mount_sdcard
@@ -425,9 +415,9 @@ if [ 0$DEBUG -gt 1 ]; then
 	debug_shell debug-late
 fi
 
-# [ -n "$DEBUG" ] && SWITCH=${SWITCH:-chroot}
+# [ "$DEBUG" ] && SWITCH=${SWITCH:-chroot}
 
-[ -n "$INSTALL" ] && start_install
+[ "$INSTALL" ] && start_install
 
 # We must disable mdev before switching to Android
 # since it conflicts with Android's init

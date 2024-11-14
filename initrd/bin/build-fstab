@@ -26,9 +26,8 @@ for c in $(cat /proc/cmdline); do
   esac
 done
 
-SLOT=_a
-
 _s=system\$SLOT
+
 if ls "$src"/system"$SLOT".?fs >/dev/null 2>&1; then
   _s=$_s.$(basename "$(find "$src"/system"$SLOT".?fs | head -1)" | cut -f 2 -d '.')
 elif [ -e "$src"/system"$SLOT".img ]; then
@@ -49,36 +48,33 @@ _d=${DATA:=${2:-data.img}}
 _d_fs=auto
 _d_flags=defaults
 _d_aflags=defaults
-if [ "$DATA" ]; then
-  blk=$(find_device "$DATA")
-  if [ -b "$blk" ]; then
-    _d_flags=noatime
-  elif [ "$DATA" = "9p" ]; then
-    _d_fs=9p
-    _d_flags='trans=virtio,version=9p2000.L,posixacl'
-  elif [ "$DATA" = "virtiofs" ]; then
-    _d_fs=virtiofs
-    _d_flags=nosuid,nodev,noatime
-  elif [ -d "$src/$DATA" ]; then
+if [ -b "$(find_device "$_d")" ]; then
+  _d_flags=noatime
+elif [ "$_d" = "9p" ]; then
+  _d_fs=9p
+  _d_flags='trans=virtio,version=9p2000.L,posixacl'
+elif [ "$_d" = "virtiofs" ]; then
+  _d_fs=virtiofs
+  _d_flags=nosuid,nodev,noatime
+elif [ -f "$src/$_d" ]; then
+  _d="#>$_d  /data  \n#?/data"
+  _d_flags=loop,noatime
+else
+  [ -d "$src/$_d" ] || _d=data
+  if [ -d "$src/$_d" ]; then
     _d="#>$_d"
     _d_fs=
     _d_flags=
     _d_aflags=
-  elif [ -s "$src/$DATA" ]; then
-    _d="#>$_d  /data  \n#?/data"
-    _d_flags=loop,noatime
   else
     _d=tmpfs
     _d_fs=tmpfs
   fi
-elif [ -d "$src"/data ]; then
-  _d="#>$_d"
-  _d_fs=
-  _d_flags=
-  _d_aflags=
-else
-  _d=tmpfs
-  _d_fs=tmpfs
 fi
 
 echo -e "$_d  /data  $_d_fs  $_d_flags  $_d_aflags"
+
+_b=${3:-"#>boot"}
+[ "$_b" = "noboot" ] && exit 0
+
+echo -e "$_b  /boot"
